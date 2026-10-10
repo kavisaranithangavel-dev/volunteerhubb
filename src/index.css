@@ -44,3 +44,35 @@ button:disabled { opacity: 0.6; }
 .switch { text-align: center; color: #1f7a3d; cursor: pointer; margin: 0; }
 .error { color: #c0392b; font-size: 14px; margin: 0; }
 .center { text-align: center; margin-top: 80px; }
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #1f7a3d;
+  color: white;
+  padding: 12px 20px;
+}
+.brand { font-weight: bold; font-size: 18px; }
+button.small { padding: 6px 12px; background: white; color: #1f7a3d; margin-left: 8px; }
+.page { max-width: 720px; margin: 0 auto; padding: 20px; }
+.panel {
+  background: white;
+  border-radius: 12px;
+  padding: 18px;
+  margin-bottom: 14px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.panel h3, .panel h4, .panel p { margin: 0; }
+.event { flex-direction: row; justify-content: space-between; align-items: flex-start; }
+.muted { color: #5c6f60; }
+button.danger { background: #c0392b; }
+textarea {
+  padding: 11px;
+  border: 1px solid #cfd9d1;
+  border-radius: 8px;
+  font-size: 15px;
+  font-family: inherit;
+}
