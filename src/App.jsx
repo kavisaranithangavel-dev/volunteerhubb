@@ -4,6 +4,7 @@ import { doc, onSnapshot } from "firebase/firestore";
 import { auth, db } from "./firebase";
 import AuthPage from "./AuthPage";
 import AdminDashboard from "./AdminDashboard";
+import VolunteerDashboard from "./VolunteerDashboard";
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -63,10 +64,7 @@ export default function App() {
       {profile.role === "admin" ? (
         <AdminDashboard user={user} />
       ) : (
-        <div className="page">
-          <h2>Welcome, {profile.name}!</h2>
-          <p className="muted">Volunteer tasks will appear here soon.</p>
-        </div>
+        <VolunteerDashboard user={user} profile={profile} />
       )}
     </div>
   );

@@ -4,11 +4,16 @@ import {
   collection,
   deleteDoc,
   doc,
+  increment,
   onSnapshot,
   orderBy,
   query,
+  updateDoc,
+  where,
+  writeBatch,
 } from "firebase/firestore";
 import { db } from "./firebase";
+import Attendance from "./Attendance";
 
 const SKILLS = [
   "General help",
@@ -19,6 +24,12 @@ const SKILLS = [
   "Tech Support",
   "Photography",
 ];
+
+function fillClass(t) {
+  if (t.slotsFilled >= t.slotsNeeded) return "dot green";
+  if (t.slotsFilled > 0) return "dot amber";
+  return "dot red";
+}
 
 function TaskSection({ eventId, tasks }) {
   const [title, setTitle] = useState("");
@@ -54,6 +65,7 @@ function TaskSection({ eventId, tasks }) {
       {tasks.map((t) => (
         <div className="task-row" key={t.id}>
           <div>
+            <span className={fillClass(t)}></span>
             <b>{t.title}</b>
             <span className="muted">
               {" "}
@@ -102,6 +114,8 @@ function TaskSection({ eventId, tasks }) {
 export default function AdminDashboard({ user }) {
   const [events, setEvents] = useState([]);
   const [tasks, setTasks] = useState([]);
+  const [assignments, setAssignments] = useState([]);
+  const [volunteers, setVolunteers] = useState([]);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [location, setLocation] = useState("");
@@ -110,17 +124,12 @@ export default function AdminDashboard({ user }) {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    const q = query(collection(db, "events"), orderBy("createdAt", "desc"));
-    const unsub = onSnapshot(
-      q,
+    const unsubEvents = onSnapshot(
+      query(collection(db, "events"), orderBy("createdAt", "desc")),
       (snap) => setEvents(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
       (err) => setError(err.message)
     );
-    return unsub;
-  }, []);
-
-  useEffect(() => {
-    const unsub = onSnapshot(
+    const unsubTasks = onSnapshot(
       collection(db, "tasks"),
       (snap) => {
         const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
@@ -129,8 +138,66 @@ export default function AdminDashboard({ user }) {
       },
       (err) => setError(err.message)
     );
-    return unsub;
+    const unsubAssign = onSnapshot(
+      collection(db, "assignments"),
+      (snap) => setAssignments(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+      (err) => setError(err.message)
+    );
+    const unsubVols = onSnapshot(
+      query(collection(db, "users"), where("role", "==", "volunteer")),
+      (snap) => setVolunteers(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+      (err) => setError(err.message)
+    );
+    return () => {
+      unsubEvents();
+      unsubTasks();
+      unsubAssign();
+      unsubVols();
+    };
   }, []);
+
+  const pending = assignments.filter((a) => a.status === "applied");
+  const approved = assignments.filter((a) => a.status === "approved");
+  const openSlots = tasks.reduce(
+    (sum, t) => sum + Math.max(0, t.slotsNeeded - t.slotsFilled),
+    0
+  );
+
+  async function approve(a) {
+    setError("");
+    const task = tasks.find((t) => t.id === a.taskId);
+    if (!task) {
+      setError("That task no longer exists.");
+      return;
+    }
+    if (task.slotsFilled >= task.slotsNeeded) {
+      setError(`"${task.title}" is already full.`);
+      return;
+    }
+    try {
+      const batch = writeBatch(db);
+      batch.update(doc(db, "assignments", a.id), {
+        status: "approved",
+        approvedAt: Date.now(),
+      });
+      batch.update(doc(db, "tasks", task.id), {
+        slotsFilled: increment(1),
+        status: task.slotsFilled + 1 >= task.slotsNeeded ? "filled" : "open",
+      });
+      await batch.commit();
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function reject(a) {
+    setError("");
+    try {
+      await updateDoc(doc(db, "assignments", a.id), { status: "rejected" });
+    } catch (err) {
+      setError(err.message);
+    }
+  }
 
   async function handleCreate(e) {
     e.preventDefault();
@@ -168,7 +235,62 @@ export default function AdminDashboard({ user }) {
   return (
     <div className="page">
       <h2>Organizer Dashboard</h2>
+      {error && <p className="error">{error}</p>}
 
+      <div className="stats">
+        <div className="stat">
+          <b>{volunteers.length}</b>
+          <span>Volunteers</span>
+        </div>
+        <div className="stat">
+          <b>{openSlots}</b>
+          <span>Open slots</span>
+        </div>
+        <div className="stat">
+          <b>{pending.length}</b>
+          <span>Pending</span>
+        </div>
+        <div className="stat">
+          <b>{approved.length}</b>
+          <span>Approved</span>
+        </div>
+      </div>
+
+      <div className="panel">
+        <h3>Applications waiting for approval ({pending.length})</h3>
+        {pending.length === 0 && (
+          <p className="muted">No pending applications right now.</p>
+        )}
+        {pending.map((a) => {
+          const task = tasks.find((t) => t.id === a.taskId);
+          const ev = events.find((e) => e.id === a.eventId);
+          const vol = volunteers.find((v) => v.id === a.volunteerId);
+          const matches =
+            vol && task && (vol.skills || []).includes(task.requiredSkill);
+          return (
+            <div className="task-row" key={a.id}>
+              <div>
+                <b>{a.volunteerName}</b>
+                <span className="muted">
+                  {" "}
+                  applied for {task ? task.title : "a removed task"}
+                  {ev ? ` · ${ev.title}` : ""}
+                </span>
+                {matches && <span className="match"> ✓ skill match</span>}
+              </div>
+              <div className="actions">
+                <button className="small apply" onClick={() => approve(a)}>
+                  Approve
+                </button>
+                <button className="small danger" onClick={() => reject(a)}>
+                  Reject
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <Attendance assignments={assignments} tasks={tasks} events={events} />
       <form className="panel" onSubmit={handleCreate}>
         <h3>Create a new event</h3>
         <input
@@ -195,7 +317,6 @@ export default function AdminDashboard({ user }) {
           value={description}
           onChange={(e) => setDescription(e.target.value)}
         />
-        {error && <p className="error">{error}</p>}
         <button type="submit" disabled={saving}>
           {saving ? "Saving..." : "Create event"}
         </button>
